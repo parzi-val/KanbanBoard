@@ -2,6 +2,7 @@ import requests
 import json
 from rich.text import Text
 from rich.console import Console
+from kanban.tools import Response,Formats
 
 # URL to which you want to send the POST request
 BASE_URL = 'http://127.0.0.1:8000/backend/'
@@ -24,20 +25,21 @@ SUFFIXES = {
     "current" : "current/"
 }
 
-def erred(text):
-    text = Text(text)
-    text.stylize("bold red")
-    return text
-def valid(text):
-    text = Text(text)
-    text.stylize("bold green")
-    return text
+
 console = Console()
+
+def isOffline(func):
+    def wrapper(self,*args,**kwargs):
+        try:
+            return func(self,*args,**kwargs)
+        except requests.ConnectionError:
+            return Response("Server is offline.",fmt=Formats.ERRED)
+    return wrapper
 
 def login_required(func):
     def wrapper(self, *args, **kwargs):
         if not self.IS_LOGGED_IN:
-            return 'Login to use this.',-1
+            return Response('Login to use this.',fmt=Formats.ERRED)
         return func(self, *args, **kwargs)
     return wrapper
 
@@ -61,7 +63,8 @@ class Session:
         return {
             "Cookie":f"sessionid={self.session}"
         }
-        
+    
+    @isOffline
     def login(self,username,password):
         suffix = SUFFIXES["login"]
         data = {"username" : username,"password":password}
@@ -71,11 +74,12 @@ class Session:
         write({"cookie":self.session})
         if response.status_code == 200:
             self.IS_LOGGED_IN = True
-            return valid('Logged in succesfully.'),0
+            return Response('Logged in succesfully.',fmt=Formats.VALID)
             
         elif response.status_code == 400:
-            return erred('Invalid username or password.'),1
+            return Response('Invalid username or password.',fmt=Formats.ERRED)
     
+    @isOffline
     @login_required  
     def logout(self):
         suffix = SUFFIXES["logout"]
@@ -83,8 +87,10 @@ class Session:
 
         if response.status_code == 200:
             clear()
-            return valid('Logged out succesfully.'),0
-        
+            return Response('Logged out succesfully.',fmt=Formats.VALID)
+
+
+    @isOffline   
     def user_registration(self,username,email,password):
         suffix = SUFFIXES["register"]
         data = {
@@ -95,8 +101,9 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=json.dumps(data))
 
         if response.status_code == 200:
-            return valid('User created successfully.'),0
+            return Response('User created successfully.',fmt=Formats.VALID)
     
+    @isOffline
     @login_required
     def switch(self,*,project = None,board = None):
         self.CURRENT_PROJECT = project
@@ -107,10 +114,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 400:
-            return erred(data["error"]),1
+            return Response(data["error"],fmt=Formats.ERRED)
     
+    @isOffline
     @login_required
     def create_project(self,*,name,start_date,end_date,desc):
         suffix = SUFFIXES["create-project"]
@@ -124,10 +132,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 201:
-            return valid(data["message"]),0
-        if response.status_code == 400:
-            return erred(data["error"]),1
+            return Response(data["message"],fmt=Formats.VALID)
+        elif response.status_code == 400:
+            return Response(data["error"],fmt=Formats.ERRED)
     
+    @isOffline
     @login_required
     def create_board(self,*,name):
         suffix = SUFFIXES["create-board"]
@@ -137,10 +146,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=json.dumps(data),headers=self.headers())
         data =  json.loads(response.text)
         if response.status_code == 201:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 400:
-            return erred("Project not set. Use switch to set Project."),1
+            return Response("Project not set. Use switch to set Project.",fmt=Formats.ERRED)
     
+    @isOffline
     @login_required
     def create_task(self,*,name,desc,assigned,reporter):
         suffix = SUFFIXES["create-task"]
@@ -154,11 +164,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data =  json.loads(response.text)
         if response.status_code == 201:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 400:
-            return erred("Board or Project is not set. Use switch to set."),1
+            return Response("Board or Project is not set. Use switch to set.",fmt=Formats.ERRED)
     
-
+    @isOffline
     @login_required
     def delete_project(self,name):
         suffix = SUFFIXES["delete-project"]
@@ -169,10 +179,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data =  json.loads(response.text)
         if response.status_code == 200:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 404:
-            return erred(data["error"]),1
+            return Response(data["error"],fmt=Formats.ERRED)
     
+    @isOffline
     @login_required
     def delete_board(self,name):
         suffix = SUFFIXES["delete-board"]
@@ -183,10 +194,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data =  json.loads(response.text)
         if response.status_code == 200:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 404:
-            return erred(data["error"]),1
+            return Response(data["error"],fmt="error")
 
+    @isOffline
     @login_required
     def delete_task(self,alias):
         suffix = SUFFIXES["delete-task"]
@@ -197,10 +209,11 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data =  json.loads(response.text)
         if response.status_code == 200:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 404:
-            return erred(data["error"]),1
+            return Response(data["error"],fmt="error")
 
+    @isOffline
     @login_required
     def show_project(self,name=None):
         suffix = SUFFIXES["show-project"]
@@ -211,20 +224,22 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return data["project"],0
+            return Response(data["project"],fmt=Formats.PROJECT)
         elif response.status_code == 404:
-            return erred(data["error"]),1
-        
+            return Response(data["error"],fmt=Formats.ERRED)
+
+    @isOffline   
     @login_required
     def show_board(self):
         suffix = SUFFIXES["show-board"]
         response = requests.get(BASE_URL+suffix,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return data["board"],0
+            return Response(data["board"],fmt=Formats.BOARD)
         elif response.status_code == 404:
-            return erred(data["error"]),1
+            return Response(data["error"],fmt=Formats.ERRED)
 
+    @isOffline
     @login_required
     def show_task(self,alias):
         suffix = SUFFIXES["show-task"]
@@ -235,20 +250,22 @@ class Session:
         response = requests.get(BASE_URL+suffix,data=data,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return data["task"],0
+            return Response(data["task"],fmt=Formats.TASK)
         elif response.status_code == 404:
-            return erred(data["error"]),1
-        
+            return Response(data["error"],fmt=Formats.ERRED)
+
+    @isOffline    
     @login_required
     def show_assigned_task(self):
         suffix = SUFFIXES["show-assigned-tasks"]
         response = requests.get(BASE_URL+suffix,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return data["tasks"],0
+            return Response(data["tasks"],fmt=Formats.TASKS)
         elif response.status_code == 404:
-            return erred(data["error"]),1
-        
+            return Response(data["error"],fmt=Formats.ERRED)
+
+    @isOffline   
     @login_required 
     def set_status(self,alias):
         suffix = SUFFIXES["set-status"]
@@ -260,15 +277,16 @@ class Session:
         response = requests.post(BASE_URL+suffix,data=data,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return valid(data["message"]),0
+            return Response(data["message"],fmt=Formats.VALID)
         elif response.status_code == 404:
-            return erred(data["error"]),1
-        
+            return Response(data["error"],fmt=Formats.ERRED)
+
+    @isOffline   
     @login_required
     def status(self):
         suffix = SUFFIXES["current"]
         response = requests.get(BASE_URL+suffix,headers=self.headers())
         data = json.loads(response.text)
         if response.status_code == 200:
-            return data["current"],0
+            return Response(data["current"],fmt=Formats.CWS)
 

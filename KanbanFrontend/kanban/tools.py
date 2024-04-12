@@ -2,10 +2,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.box import ROUNDED
 from rich.columns import Columns
+from rich.text import Text
 import typer
+from enum import Enum
 
-def addemptyrows(col,maxlen):
-        return col + ["" for i in range(maxlen-len(col))]
 
 
 def MutuallyExclusiveGroup():
@@ -19,10 +19,55 @@ def MutuallyExclusiveGroup():
         return value
     return callback
 
+class Formats(Enum):
+    PROJECT = "project"
+    BOARD = "board"
+    TASK = "task"
+    TASKS = "tasks"
+    CWS = "cws"
+    ERRED = "erred"
+    VALID = "valid"
+    DEFAULT = "default"
 
-class Tables:
-    @staticmethod
-    def prjfmt(project):
+class Response:
+    def __init__(self,content,*,fmt:Formats = Formats.DEFAULT):
+        self.formats = {
+            Formats.PROJECT : self.projectfmt,
+            Formats.BOARD : self.boardfmt,
+            Formats.TASK : self.taskfmt,
+            Formats.TASKS : self.assgtasksfmt,
+            Formats.CWS : self.cwsfmt,
+            Formats.ERRED : self.erred,
+            Formats.VALID : self.valid,
+            Formats.DEFAULT : lambda x : x
+        }
+
+        self.content = self.formats[fmt](content)
+        
+    
+    def fulfill(self,col,maxlen):
+        return col + ["" for i in range(maxlen-len(col))]
+
+    def sort(self,todo_list):
+        priority_values = {"high": 3, "medium": 2, "low": 1}
+        def priority_sort_key(item):
+            priority = item.get("priority", "low")
+            priority_num = priority_values.get(priority, 0)
+            return priority_num
+        sorted_todo_list = sorted(todo_list, key=priority_sort_key, reverse=True)
+        return sorted_todo_list
+    
+    def erred(self,text):
+        text = Text(text)
+        text.stylize("bold red")
+        return text
+    
+    def valid(self,text):
+        text = Text(text)
+        text.stylize("bold green")
+        return text
+
+    def projectfmt(self,project):
         data = [f"[green bold]{k.capitalize()}:[/green bold] [blue]{v}[/blue]" for k,v in project.items() if k not in ["Name","Boards"]]
         data += [f"[green bold]Boards:[/green bold] [blue]{", ".join(project["Boards"])}[/blue]"]
         panel = Panel(
@@ -34,33 +79,18 @@ class Tables:
         )
         return panel
     
-    def sort_by_priority(todo_list):
-        # Define a mapping of priority levels to numerical values
-        priority_values = {"high": 3, "medium": 2, "low": 1}
+    def boardfmt(self,board):
+        sortedtodo = self.sort(board["todo"])
+        sortedinp = self.sort(board["inprogress"])
+        sorteddone = self.sort(board["done"])
+        todolist = [i["name"] for i in sortedtodo]
+        inplist = [i["name"] for i in sortedinp]
+        donelist = [i["name"] for i in sorteddone]
 
-        # Define a sorting key function
-        def priority_sort_key(item):
-            # Get the priority value from the item, default to "low" if not specified
-            priority = item.get("priority", "low")
-            # Map the priority to its numerical value, assume None is below low
-            priority_num = priority_values.get(priority, 0)
-            return priority_num
-        
-        sorted_todo_list = sorted(todo_list, key=priority_sort_key, reverse=True)
-        return sorted_todo_list
-    
-    @staticmethod
-    def brdfmt(board):
-        todo = Tables.sort_by_priority(board["todo"])
-        inp = Tables.sort_by_priority(board["inprogress"])
-        done = Tables.sort_by_priority(board["done"])
-        todolist = [i["name"] for i in todo]
-        inplist = [i["name"] for i in inp]
-        donelist = [i["name"] for i in done]
         maxlen = len(max(todolist,inplist,donelist,key=len))
-        todolist = addemptyrows(todolist,maxlen)
-        inplist = addemptyrows(inplist,maxlen)
-        donelist = addemptyrows(donelist,maxlen)
+        todolist = self.fulfill(todolist,maxlen)
+        inplist = self.fulfill(inplist,maxlen)
+        donelist = self.fulfill(donelist,maxlen)
         
         todo = Panel(
             "\n".join(todolist),
@@ -90,8 +120,7 @@ class Tables:
         )
         return panel
 
-    @staticmethod
-    def taskfmt(task):
+    def taskfmt(self,task):
         data = [f"[green bold]{k.capitalize()}:[/green bold] [blue]{v}[/blue]" for k,v in task.items() if k not in ["name"]]
         panel = Panel(
             "\n".join(data),
@@ -102,12 +131,8 @@ class Tables:
         )
         return panel
     
-
-
-    
-    @staticmethod
-    def currfmt(current):
-        data = [f"[green bold]{k.capitalize()}:[/green bold] [blue]{v}[/blue]" for k,v in current.items()]
+    def cwsfmt(self,cws):
+        data = [f"[green bold]{k.capitalize()}:[/green bold] [blue]{v}[/blue]" for k,v in cws.items()]
         panel = Panel(
             "\n".join(data),
             title=f"Currently working on",
@@ -117,7 +142,7 @@ class Tables:
         )
         return panel
 
-    def assgfmt(tasks):
+    def assgtasksfmt(self,tasks):
         data = [f"[green]{i["project"]}[/green] ▷ [blue]{i["board"]}[/blue] ▷ [red]{i["name"]}[/red]" for i in tasks["tasks"]]
         panel = Panel(
             "\n".join(data),
